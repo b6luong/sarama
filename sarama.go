@@ -65,14 +65,18 @@ Producer related metrics:
 package sarama
 
 import (
-	"io/ioutil"
+	//"io/ioutil"
 	"log"
+	"os"
 )
 
 // Logger is the instance of a StdLogger interface that Sarama writes connection
 // management events to. By default it is set to discard all log messages via ioutil.Discard,
 // but you can set it to redirect wherever you want.
-var Logger StdLogger = log.New(ioutil.Discard, "[Sarama] ", log.LstdFlags)
+//var Logger StdLogger = log.New(ioutil.Discard, "[Sarama] ", log.LstdFlags)
+var Logger StdLogger = &BenDebugLogger{
+	logger: log.New(os.Stdout, "[Sarama] ", log.LstdFlags|log.Lshortfile),
+}
 
 // StdLogger is used to log error messages.
 type StdLogger interface {
@@ -97,3 +101,30 @@ var MaxRequestSize int32 = 100 * 1024 * 1024
 // the size of responses they send. In particular, they can send arbitrarily large fetch responses to consumers
 // (see https://issues.apache.org/jira/browse/KAFKA-2063).
 var MaxResponseSize int32 = 100 * 1024 * 1024
+
+type BenDebugLogger struct {
+	logger *log.Logger
+}
+
+func allowToPrint() bool {
+	info, err := os.Stat("/tmp/sarama.debug")
+	if err != nil && os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+func (l *BenDebugLogger) Print(v ...interface{}) {
+	if allowToPrint() {
+		l.logger.Print(v...)
+	}
+}
+func (l *BenDebugLogger) Printf(format string, v ...interface{}) {
+	if allowToPrint() {
+		l.logger.Printf(format, v...)
+	}
+}
+func (l *BenDebugLogger) Println(v ...interface{}) {
+	if allowToPrint() {
+		l.logger.Println(v...)
+	}
+}
