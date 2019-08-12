@@ -702,9 +702,9 @@ func (client *client) getOffset(topic string, partitionID int32, time int64) (in
 func (client *client) backgroundMetadataUpdater() {
 	defer close(client.closed)
 
-	if client.conf.Metadata.RefreshFrequency == time.Duration(0) {
-		return
-	}
+	//if client.conf.Metadata.RefreshFrequency == time.Duration(0) { //UNCOMMENT THIS!!!
+	return
+	//} //UNCOMMENT THIS!!
 
 	ticker := time.NewTicker(client.conf.Metadata.RefreshFrequency)
 	defer ticker.Stop()
@@ -769,7 +769,7 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 	for ; broker != nil && !pastDeadline(0); broker = client.any() {
 		allowAutoTopicCreation := true
 		if len(topics) > 0 {
-			Logger.Printf("client/metadata fetching metadata for %v from broker %s\n", topics, broker.addr)
+			Logger.Printf("[tryRefreshMetadata] client/metadata fetching metadata for %v from broker %s\n", topics, broker.addr)
 		} else {
 			allowAutoTopicCreation = false
 			Logger.Printf("client/metadata fetching metadata for all topics from broker %s\n", broker.addr)
@@ -782,19 +782,24 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 			req.Version = 1
 		}
 		response, err := broker.GetMetadata(req)
+
+		Logger.Printf("[tryRefreshMetadata] client/metadata got response from Kafka, error = %v\n", err)
+
 		switch err.(type) {
 		case nil:
+			Logger.Printf("[tryRefreshMetadata] client/metadata got nil error\n")
 			allKnownMetaData := len(topics) == 0
 			// valid response, use it
 			shouldRetry, err := client.updateMetadata(response, allKnownMetaData)
 			if shouldRetry {
-				Logger.Println("client/metadata found some partitions to be leaderless")
+				Logger.Println("[tryRefreshMetadata] client/metadata found some partitions to be leaderless")
 				return retry(err) // note: err can be nil
 			}
 			return err
 
 		case PacketEncodingError:
 			// didn't even send, return the error
+			Logger.Printf("[tryRefreshMetadata] client/metadata got PacketEncodingError\n")
 			return err
 
 		case KError:
@@ -810,7 +815,7 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 
 		default:
 			// some other error, remove that broker and try again
-			Logger.Printf("client/metadata got error from broker %d while fetching metadata: %v\n", broker.ID(), err)
+			Logger.Printf("[tryRefreshMetadata] client/metadata got error from broker %d while fetching metadata: %v\n", broker.ID(), err)
 			_ = broker.Close()
 			client.deregisterBroker(broker)
 		}
