@@ -32,18 +32,16 @@ func dupInt32Slice(input []int32) []int32 {
 	return ret
 }
 
-func withRecover(fn func(), fnName ...string) {
+func withRecover(fn func()) {
 	defer func() {
-		//handler := PanicHandler
-		//if handler != nil {
-		if err := recover(); err != nil {
-			if len(fnName) > 0 {
-				Logger.Printf("%s Panicked: %v\n", fnName[0], err)
+		handler := PanicHandler
+		if handler != nil {
+			if err := recover(); err != nil {
+				handler(err)
 			}
-			//handler(err)
 		}
-		//}
 	}()
+
 	fn()
 }
 
