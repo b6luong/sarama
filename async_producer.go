@@ -203,6 +203,11 @@ type ProducerMessage struct {
 	sequenceNumber int32
 }
 
+func (m *ProducerMessage) String() string {
+	b, _ := m.Value.Encode()
+	return fmt.Sprintf("[%s => %s]", m.Topic, string(b))
+}
+
 const producerMessageOverhead = 26 // the metadata overhead of CRC, flags, etc.
 
 func (m *ProducerMessage) byteSize(version int) int {
@@ -589,7 +594,9 @@ func (pp *partitionProducer) flushRetryBuffers() {
 		pp.highWatermark--
 
 		if pp.brokerProducer == nil {
+			Logger.Printf("partitionProducer[%p] Attempting to update leader while flushing retry buffer\n", pp.input)
 			if err := pp.updateLeader(); err != nil {
+				Logger.Printf("partitionProducer[%p] Failed to update leader while flushing retry buffer: %v\n", pp.input, err)
 				pp.parent.returnErrors(pp.retryState[pp.highWatermark].buf, err)
 				goto flushDone
 			}
@@ -614,15 +621,20 @@ func (pp *partitionProducer) flushRetryBuffers() {
 
 func (pp *partitionProducer) updateLeader() error {
 	return pp.breaker.Run(func() (err error) {
+		Logger.Printf("partitionProducer[%p] Attempting to refresh metadata\n", pp.input)
 		if err = pp.parent.client.RefreshMetadata(pp.topic); err != nil {
+			Logger.Printf("partitionProducer[%p] Failed to refresh metadata: %v\n", pp.input, err)
 			return err
 		}
 
+		Logger.Printf("partitionProducer[%p] Attempting to set new leader\n", pp.input)
 		if pp.leader, err = pp.parent.client.Leader(pp.topic, pp.partition); err != nil {
+			Logger.Printf("partitionProducer[%p] Failed to set new leader: %v\n", pp.input, err)
 			return err
 		}
 
 		pp.brokerProducer = pp.parent.getBrokerProducer(pp.leader)
+		Logger.Printf("partitionProducer[%p] Using new brokerProducer[%p]\n", pp.input, pp.brokerProducer.input)
 		pp.parent.inFlight.Add(1) // we're generating a syn message; track it so we don't shut down while it's still inflight
 		pp.brokerProducer.input <- &ProducerMessage{Topic: pp.topic, Partition: pp.partition, flags: syn}
 
@@ -707,7 +719,7 @@ func (bp *brokerProducer) run() {
 	for {
 		select {
 		case msg := <-bp.input:
-			Logger.Printf("brokerProducer[%p -> broker(%d)] Received message: %p\n", bp.input, bp.broker.ID(), msg)
+			Logger.Printf("brokerProducer[%p -> broker(%d)] Received message: %v\n", bp.input, bp.broker.ID(), msg)
 			if msg == nil {
 				Logger.Printf("brokerProducer[%p -> broker(%d)] Shutting down\n", bp.input, bp.broker.ID())
 				bp.shutdown()
@@ -725,7 +737,7 @@ func (bp *brokerProducer) run() {
 			}
 
 			if reason := bp.needsRetry(msg); reason != nil {
-				Logger.Printf("brokerProducer[%p -> broker(%d)] Need to retry message %p: %v\n", bp.input, bp.broker.ID(), msg, reason)
+				Logger.Printf("brokerProducer[%p -> broker(%d)] Need to retry message %v: %v\n", bp.input, bp.broker.ID(), msg, reason)
 				bp.parent.retryMessage(msg, reason)
 
 				if bp.closing == nil && msg.flags&fin == fin {
@@ -760,7 +772,7 @@ func (bp *brokerProducer) run() {
 			Logger.Printf("brokerProducer[%p -> broker(%d)] Timer triggered\n", bp.input, bp.broker.ID())
 			bp.timerFired = true
 		case output <- bp.buffer:
-			Logger.Printf("brokerProducer[%p -> broker(%d)] Sending buffer\n", bp.input, bp.broker.ID())
+			Logger.Printf("brokerProducer[%p -> broker(%d)] (run) Sending buffer\n", bp.input, bp.broker.ID())
 			bp.rollOver()
 		case response := <-bp.responses:
 			Logger.Printf("brokerProducer[%p -> broker(%d)] Handling response %r\n", bp.input, bp.broker.ID(), response)
@@ -836,6 +848,7 @@ func (bp *brokerProducer) handleResponse(response *brokerProducerResponse) {
 	}
 
 	if bp.buffer.empty() {
+		Logger.Printf("brokerProducer[%p -> broker(%d)] response from Kafka invalidated buffer\n", bp.input, bp.broker.ID())
 		bp.rollOver() // this can happen if the response invalidated our buffer
 	}
 }
@@ -884,10 +897,12 @@ func (bp *brokerProducer) handleSuccess(sent *produceSet, response *ProduceRespo
 	})
 
 	if len(retryTopics) > 0 {
+		Logger.Printf("brokerProducer[%p] Attempting to update leader due to retry topics\n", bp.input)
 		err := bp.parent.client.RefreshMetadata(retryTopics...)
 		if err != nil {
 			Logger.Printf("Failed refreshing metadata because of %v\n", err)
 		}
+		Logger.Printf("brokerProducer[%p] Finished update leader due to retry topics\n", bp.input)
 
 		sent.eachPartition(func(topic string, partition int32, pSet *partitionSet) {
 			block := response.GetBlock(topic, partition)
@@ -932,7 +947,6 @@ func (p *asyncProducer) retryBatch(topic string, partition int32, pSet *partitio
 	leader, err := p.client.Leader(topic, partition)
 	if err != nil {
 		Logger.Printf("Failed retrying batch for %v-%d because of %v while looking up for new leader\n", topic, partition, err)
-		logge.Print()
 		for _, msg := range pSet.msgs {
 			p.returnError(msg, kerr)
 		}
@@ -1085,7 +1099,7 @@ func (p *asyncProducer) unrefBrokerProducer(broker *Broker, bp *brokerProducer) 
 		delete(p.brokerRefs, bp)
 
 		if p.brokers[broker] == bp {
-			Logger.Printf("asyncProducer[%p] Deleting broker[%p]\n", p, broker)
+			Logger.Printf("asyncProducer[%p] Deleting broker[%d]\n", p, broker.ID())
 			delete(p.brokers, broker)
 		}
 	}
@@ -1095,6 +1109,6 @@ func (p *asyncProducer) abandonBrokerConnection(broker *Broker) {
 	p.brokerLock.Lock()
 	defer p.brokerLock.Unlock()
 
-	Logger.Printf("asyncProducer[%p] Abandoning broker, deleting broker[%p]\n", p, broker)
+	Logger.Printf("asyncProducer[%p] Abandoning broker, deleting broker[%d]\n", p, broker.ID())
 	delete(p.brokers, broker)
 }

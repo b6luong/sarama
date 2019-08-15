@@ -668,9 +668,9 @@ func (client *client) getOffset(topic string, partitionID int32, time int64) (in
 func (client *client) backgroundMetadataUpdater() {
 	defer close(client.closed)
 
-	if client.conf.Metadata.RefreshFrequency == time.Duration(0) {
-		return
-	}
+	//if client.conf.Metadata.RefreshFrequency == time.Duration(0) { //UNCOMMENT THIS!!!
+	return
+	//} //UNCOMMENT THIS!!
 
 	ticker := time.NewTicker(client.conf.Metadata.RefreshFrequency)
 	defer ticker.Stop()
@@ -710,7 +710,7 @@ func (client *client) refreshMetadata() error {
 func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int) error {
 	retry := func(err error) error {
 		if attemptsRemaining > 0 {
-			Logger.Printf("client/metadata retrying after %dms... (%d attempts remaining)\n", client.conf.Metadata.Retry.Backoff/time.Millisecond, attemptsRemaining)
+			Logger.Printf("[tryRefreshMetadata] client/metadata retrying after %dms... (%d attempts remaining)\n", client.conf.Metadata.Retry.Backoff/time.Millisecond, attemptsRemaining)
 			time.Sleep(client.conf.Metadata.Retry.Backoff)
 			return client.tryRefreshMetadata(topics, attemptsRemaining-1)
 		}
@@ -719,9 +719,9 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int)
 
 	for broker := client.any(); broker != nil; broker = client.any() {
 		if len(topics) > 0 {
-			Logger.Printf("client/metadata fetching metadata for %v from broker %s\n", topics, broker.addr)
+			Logger.Printf("[tryRefreshMetadata] client/metadata fetching metadata for %v from broker %s\n", topics, broker.addr)
 		} else {
-			Logger.Printf("client/metadata fetching metadata for all topics from broker %s\n", broker.addr)
+			Logger.Printf("[tryRefreshMetadata] client/metadata fetching metadata for all topics from broker %s\n", broker.addr)
 		}
 
 		req := &MetadataRequest{Topics: topics}
@@ -730,29 +730,33 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int)
 		}
 		response, err := broker.GetMetadata(req)
 
+		Logger.Printf("[tryRefreshMetadata] client/metadata got response from Kafka, error = %v\n", err)
+
 		switch err.(type) {
 		case nil:
+			Logger.Printf("[tryRefreshMetadata] client/metadata got nil error\n")
 			allKnownMetaData := len(topics) == 0
 			// valid response, use it
 			shouldRetry, err := client.updateMetadata(response, allKnownMetaData)
 			if shouldRetry {
-				Logger.Println("client/metadata found some partitions to be leaderless")
+				Logger.Println("[tryRefreshMetadata] client/metadata found some partitions to be leaderless")
 				return retry(err) // note: err can be nil
 			}
 			return err
 
 		case PacketEncodingError:
 			// didn't even send, return the error
+			Logger.Printf("[tryRefreshMetadata] client/metadata got PacketEncodingError\n")
 			return err
 		default:
 			// some other error, remove that broker and try again
-			Logger.Printf("client/metadata got error from broker %d while fetching metadata: %v\n", broker.ID(), err)
+			Logger.Printf("[tryRefreshMetadata] client/metadata got error from broker %d while fetching metadata: %v\n", broker.ID(), err)
 			_ = broker.Close()
 			client.deregisterBroker(broker)
 		}
 	}
 
-	Logger.Println("client/metadata no available broker to send metadata request to")
+	Logger.Println("[tryRefreshMetadata] client/metadata no available broker to send metadata request to")
 	client.resurrectDeadBrokers()
 	return retry(ErrOutOfBrokers)
 }
