@@ -720,9 +720,6 @@ func (b *Broker) sendAndReceive(req protocolBody, res versionedDecoder) error {
 		return versionedDecode(buf, res, req.version())
 	case err = <-promise.errors:
 		return err
-	case <-time.After(b.conf.Net.WriteTimeout):
-		Logger.Printf("Broker %d timed out when sending\n", b.ID())
-		return ErrRequestTimedOut
 	}
 }
 
