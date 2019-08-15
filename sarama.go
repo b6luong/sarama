@@ -70,15 +70,16 @@ Consumer related metrics:
 package sarama
 
 import (
-	"io/ioutil"
+	//"io/ioutil"
 	"log"
+	"os"
 )
 
 var (
 	// Logger is the instance of a StdLogger interface that Sarama writes connection
 	// management events to. By default it is set to discard all log messages via ioutil.Discard,
 	// but you can set it to redirect wherever you want.
-	Logger StdLogger = log.New(ioutil.Discard, "[Sarama] ", log.LstdFlags)
+	//Logger StdLogger = log.New(ioutil.Discard, "[Sarama] ", log.LstdFlags)
 
 	// PanicHandler is called for recovering from panics spawned internally to the library (and thus
 	// not recoverable by the caller's goroutine). Defaults to nil, which means panics are not recovered.
@@ -98,9 +99,43 @@ var (
 	MaxResponseSize int32 = 100 * 1024 * 1024
 )
 
+// Logger is the instance of a StdLogger interface that Sarama writes connection
+// management events to. By default it is set to discard all log messages via ioutil.Discard,
+// but you can set it to redirect wherever you want.
+//var Logger StdLogger = log.New(ioutil.Discard, "[Sarama] ", log.LstdFlags)
+var Logger StdLogger = &BenDebugLogger{
+	logger: log.New(os.Stdout, "[Sarama] ", log.LstdFlags|log.Lshortfile),
+}
+
 // StdLogger is used to log error messages.
 type StdLogger interface {
 	Print(v ...interface{})
 	Printf(format string, v ...interface{})
 	Println(v ...interface{})
+}
+type BenDebugLogger struct {
+	logger *log.Logger
+}
+
+func allowToPrint() bool {
+	info, err := os.Stat("/tmp/sarama.debug")
+	if err != nil && os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+func (l *BenDebugLogger) Print(v ...interface{}) {
+	if allowToPrint() {
+		l.logger.Print(v...)
+	}
+}
+func (l *BenDebugLogger) Printf(format string, v ...interface{}) {
+	if allowToPrint() {
+		l.logger.Printf(format, v...)
+	}
+}
+func (l *BenDebugLogger) Println(v ...interface{}) {
+	if allowToPrint() {
+		l.logger.Println(v...)
+	}
 }
