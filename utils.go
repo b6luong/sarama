@@ -33,7 +33,7 @@ func dupInt32Slice(input []int32) []int32 {
 }
 
 func withRecover(fn func(), fnName ...string) {
-	defer func() {
+	/*defer func() {
 		//handler := PanicHandler
 		//if handler != nil {
 		if err := recover(); err != nil {
@@ -43,7 +43,7 @@ func withRecover(fn func(), fnName ...string) {
 			//handler(err)
 		}
 		//}
-	}()
+	}()*/
 	fn()
 }
 

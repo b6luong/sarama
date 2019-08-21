@@ -211,8 +211,9 @@ type ProducerMessage struct {
 }
 
 func (m *ProducerMessage) String() string {
-	b, _ := m.Value.Encode()
-	return fmt.Sprintf("[%s => %s]", m.Topic, string(b))
+	return fmt.Sprintf("%p", m)
+	//b, _ := m.Value.Encode()
+	//return fmt.Sprintf("[%s => %s]", m.Topic, string(b))
 }
 
 const producerMessageOverhead = 26 // the metadata overhead of CRC, flags, etc.
@@ -660,15 +661,15 @@ func (pp *partitionProducer) flushRetryBuffers() {
 
 func (pp *partitionProducer) updateLeader() error {
 	return pp.breaker.Run(func() (err error) {
-		Logger.Printf("partitionProducer[%p -> broker(%d)] Attempting to refresh metadata %s/%d\n", pp.input, pp.brokerProducer.broker.ID(), pp.topic, pp.partition)
+		Logger.Printf("partitionProducer[%p] Attempting to refresh metadata %s/%d\n", pp.input, pp.topic, pp.partition)
 		if err = pp.parent.client.RefreshMetadata(pp.topic); err != nil {
-			Logger.Printf("partitionProducer[%p -> broker(%d)] Failed to refresh metadata: %v\n", pp.input, pp.brokerProducer.broker.ID(), err)
+			Logger.Printf("partitionProducer[%p] Failed to refresh metadata: %v\n", pp.input, err)
 			return err
 		}
 
-		Logger.Printf("partitionProducer[%p -> broker(%d)] Attempting to set new leader\n", pp.input, pp.brokerProducer.broker.ID())
+		Logger.Printf("partitionProducer[%p] Attempting to set new leader\n", pp.input)
 		if pp.leader, err = pp.parent.client.Leader(pp.topic, pp.partition); err != nil {
-			Logger.Printf("partitionProducer[%p -> broker(%d)] Failed to set new leader: %v\n", pp.input, pp.brokerProducer.broker.ID(), err)
+			Logger.Printf("partitionProducer[%p] Failed to set new leader: %v\n", pp.input, err)
 			return err
 		}
 
